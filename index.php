@@ -1,53 +1,60 @@
 <?php
+session_start();
+
+// Sample login for testing (you can improve it)
+if (!isset($_SESSION['role'])) {
+    $_SESSION['role'] = 'admin'; // or 'editor'
+}
+
 $servername = "localhost";
 $username = "root";
 $password = "";
 $database = "myshop";
 
-$connection = new mysqli($servername, $username, $password, $database);
-if ($connection->connect_error) {
-    die("Connection failed: " . $connection->connect_error);
-}
+$conn = new mysqli($servername, $username, $password, $database);
+if ($conn->connect_error) die("Connection failed: " . $conn->connect_error);
 
-// Search
-$search = isset($_GET['search']) ? $_GET['search'] : '';
-
-// Pagination setup
+// Pagination settings
 $limit = 5;
-$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$page = isset($_GET['page']) ? intval($_GET['page']) : 1;
 $offset = ($page - 1) * $limit;
 
-// Count total records
-$countSql = "SELECT COUNT(*) AS total FROM clients WHERE name LIKE '%$search%' OR email LIKE '%$search%'";
-$countResult = $connection->query($countSql);
-$totalRows = $countResult->fetch_assoc()['total'];
-$totalPages = ceil($totalRows / $limit);
+// Search
+$search = isset($_GET['search']) ? trim($_GET['search']) : '';
+$searchParam = "%$search%";
 
-// Fetch clients
-$sql = "SELECT * FROM clients WHERE name LIKE '%$search%' OR email LIKE '%$search%' ORDER BY id DESC LIMIT $limit OFFSET $offset";
-$result = $connection->query($sql);
+$sql = "SELECT * FROM clients WHERE name LIKE ? OR email LIKE ? LIMIT ?, ?";
+$stmt = $conn->prepare($sql);
+$stmt->bind_param("ssii", $searchParam, $searchParam, $offset, $limit);
+$stmt->execute();
+$result = $stmt->get_result();
+
+// Count total
+$countResult = $conn->prepare("SELECT COUNT(*) FROM clients WHERE name LIKE ? OR email LIKE ?");
+$countResult->bind_param("ss", $searchParam, $searchParam);
+$countResult->execute();
+$countResult->bind_result($total);
+$countResult->fetch();
+$totalPages = ceil($total / $limit);
 ?>
 
 <!DOCTYPE html>
 <html>
 
 <head>
-    <title>Client List</title>
+    <title>Clients</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 
 <body>
     <div class="container my-5">
-        <h2>List of Clients</h2>
+        <h2>Clients</h2>
         <form method="GET" class="mb-3">
-            <div class="input-group">
-                <input type="text" class="form-control" name="search" placeholder="Search by name or email" value="<?php echo htmlspecialchars($search); ?>">
-                <button class="btn btn-outline-secondary">Search</button>
-            </div>
+            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Search..." class="form-control w-25 d-inline">
+            <button class="btn btn-primary">Search</button>
+            <a class="btn btn-success" href="create.php">New Client</a>
         </form>
-        <a class="btn btn-primary mb-3" href="create.php">New Client</a>
-
-        <table class="table table-bordered table-striped">
+        <table class="table table-bordered">
             <thead>
                 <tr>
                     <th>ID</th>
@@ -55,8 +62,8 @@ $result = $connection->query($sql);
                     <th>Email</th>
                     <th>Phone</th>
                     <th>Address</th>
-                    <th>Created At</th>
-                    <th>Action</th>
+                    <th>Created</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -69,20 +76,23 @@ $result = $connection->query($sql);
                         <td><?= $row['address'] ?></td>
                         <td><?= $row['created_at'] ?></td>
                         <td>
-                            <a href="edit.php?id=<?= $row['id'] ?>" class="btn btn-sm btn-warning">Edit</a>
-                            <a href="delete.php?id=<?= $row['id'] ?>" class="btn btn-sm btn-danger" onclick="return confirm('Are you sure?')">Delete</a>
+                            <a href="edit.php?id=<?= $row['id'] ?>" class="btn btn-sm btn-primary">Edit</a>
+                            <?php if ($_SESSION['role'] === 'admin'): ?>
+                                <a href="delete.php?id=<?= $row['id'] ?>" class="btn btn-sm btn-danger"
+                                    onclick="return confirm('Delete this client?')">Delete</a>
+                            <?php endif; ?>
                         </td>
                     </tr>
                 <?php endwhile; ?>
             </tbody>
         </table>
 
-        <!-- Pagination Links -->
+        <!-- Pagination -->
         <nav>
             <ul class="pagination">
                 <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-                    <li class="page-item <?= ($i === $page) ? 'active' : '' ?>">
-                        <a class="page-link" href="?search=<?= urlencode($search) ?>&page=<?= $i ?>"><?= $i ?></a>
+                    <li class="page-item <?= ($page == $i) ? 'active' : '' ?>">
+                        <a class="page-link" href="?page=<?= $i ?>&search=<?= urlencode($search) ?>"><?= $i ?></a>
                     </li>
                 <?php endfor; ?>
             </ul>
